@@ -282,20 +282,29 @@ public abstract class AEntityB_Existing extends AEntityA_Base {
                 prevRiderCameraPosition.set(riderCameraPosition);
                 CameraMode cameraMode = InterfaceManager.clientInterface.getCameraMode();
                 if (CameraSystem.activeCamera == null && cameraMode != CameraMode.FIRST_PERSON) {
-                    riderCameraPosition.set(riderEyePosition);
-
-                    //Adjust eye position to account for zoom settings.
                     int zoomRequired = 4 + zoomLevel;
                     riderTempPoint.set(0, 0, cameraMode == CameraMode.THIRD_PERSON ? -zoomRequired : zoomRequired).rotate(rider.getOrientation());
                     riderEyePosition.add(riderTempPoint);
 
-                    //Check if camera should be where eyes are, or somewhere different.
                     int cameraZoomRequired = 4 - InterfaceManager.clientInterface.getCameraDefaultZoom() + zoomLevel;
-                    if (zoomRequired != cameraZoomRequired) {
+                    if (this instanceof minecrafttransportsimulator.entities.instances.PartSeat) {
+                        minecrafttransportsimulator.entities.instances.PartSeat seat = (minecrafttransportsimulator.entities.instances.PartSeat) this;
+                        if (seat.vehicleOn != null) {
+                            riderCameraPosition.set(seat.vehicleOn.position);
+                        } else {
+                            riderCameraPosition.set(riderEyePosition);
+                        }
                         riderTempPoint.set(0, 0, cameraMode == CameraMode.THIRD_PERSON ? -cameraZoomRequired : cameraZoomRequired).rotate(rider.getOrientation());
                         riderCameraPosition.add(riderTempPoint);
+                        riderCameraPosition.interpolate(prevRiderCameraPosition, 0.25);
                     } else {
-                        riderCameraPosition.add(riderTempPoint);
+                        riderCameraPosition.set(riderEyePosition);
+                        if (zoomRequired != cameraZoomRequired) {
+                            riderTempPoint.set(0, 0, cameraMode == CameraMode.THIRD_PERSON ? -cameraZoomRequired : cameraZoomRequired).rotate(rider.getOrientation());
+                            riderCameraPosition.add(riderTempPoint);
+                        } else {
+                            riderCameraPosition.add(riderTempPoint);
+                        }
                     }
                 } else {
                     riderCameraPosition.set(riderEyePosition);
