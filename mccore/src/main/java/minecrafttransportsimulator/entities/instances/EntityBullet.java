@@ -642,6 +642,18 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
                 explosionPosition.add(hitSide.xOffset, hitSide.yOffset, hitSide.zOffset);
             }
             gun.world.spawnExplosion(explosionPosition, blastSize, gun.lastLoadedBullet.definition.bullet.types.contains(BulletType.INCENDIARY) && ConfigSystem.settings.damage.bulletBlockBreaking.value, ConfigSystem.settings.damage.bulletBlockBreaking.value);
+
+            double blastRadius = blastSize;
+            List<IWrapperEntity> entities = gun.world.getEntitiesWithin(new BoundingBox(explosionPosition, blastRadius));
+            for (IWrapperEntity entity : entities) {
+                if (entity instanceof IWrapperPlayer && entity.isValid()) {
+                    double distance = entity.getPosition().distanceTo(explosionPosition);
+                    if (distance <= blastRadius) {
+                        double damageAmount = gun.lastLoadedBullet.definition.bullet.damage;
+                        entity.attack(new Damage(gun, null, damageAmount).setExplosive());
+                    }
+                }
+            }
         }
 
         EntityBullet bullet = gun.world.getBullet(gun.uniqueUUID, bulletNumber);

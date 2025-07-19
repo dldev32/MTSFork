@@ -272,8 +272,10 @@ public class WrapperWorld extends AWrapperWorld {
         List<IWrapperEntity> entities = new ArrayList<>();
         Entity mcLooker = ((WrapperEntity) lookingEntity).entity;
         for (Entity entity : world.getEntities(mcLooker, mcLooker.getBoundingBox().inflate(radius))) {
-            if (entity instanceof Mob && entity.isAlive() && (!(entity instanceof LivingEntity) || ((LivingEntity) entity).deathTime == 0)) {
-                entities.add(WrapperEntity.getWrapperFor(entity));
+            if (entity instanceof LivingEntity && entity.isAlive() && ((LivingEntity) entity).deathTime == 0) {
+                if (entity instanceof Mob || !entity.isAlliedTo(mcLooker)) {
+                    entities.add(WrapperEntity.getWrapperFor(entity));
+                }
             }
         }
         return entities;
@@ -366,7 +368,7 @@ public class WrapperWorld extends AWrapperWorld {
     @Override
     public void loadEntities(BoundingBox box, AEntityE_Interactable<?> entityToLoad) {
         for (LivingEntity entity : world.getEntitiesOfClass(LivingEntity.class, WrapperWorld.convert(box))) {
-            if (entity.getVehicle() == null && !(entity instanceof Monster)) {
+            if (entity.getVehicle() == null && !(entity instanceof Player)) {
                 if (entityToLoad instanceof EntityVehicleF_Physics) {
                     for (APart part : ((EntityVehicleF_Physics) entityToLoad).allParts) {
                         if (part instanceof PartSeat && part.rider == null && !part.placementDefinition.isController) {

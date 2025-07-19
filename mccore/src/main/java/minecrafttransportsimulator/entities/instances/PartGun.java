@@ -702,7 +702,7 @@ public class PartGun extends APart {
             //Get new target if we don't have one, or if we've gone 1 second and we have a closer target by 5 blocks.
             boolean checkForCloser = entityTarget != null && ticksExisted % 20 == 0;
             if (entityTarget == null || checkForCloser) {
-                for (IWrapperEntity entity : world.getEntitiesHostile(controller, 48)) {
+                for (IWrapperEntity entity : world.getEntitiesHostile(controller, 256)) {
                     if (validateTarget(entity)) {
                         if (entityTarget != null) {
                             double distanceToBeat = position.distanceTo(entityTarget.getPosition());
@@ -725,8 +725,17 @@ public class PartGun extends APart {
                     controller.setYaw(controllerAngles.y);
                     controller.setPitch(controllerAngles.x);
 
-                    //Only fire if we're within 1 movement increment of the target.
-                    if (Math.abs(targetAngles.y - internalOrientation.angles.y) < yawSpeed && Math.abs(targetAngles.x - internalOrientation.angles.x) < pitchSpeed) {
+                    //Only fire if we're within one movement increment of the target.
+                    //For fixed guns that can't move, allow a small tolerance so AI can suppress targets.
+                    double yawDelta = Math.abs(targetAngles.y - internalOrientation.angles.y);
+                    double pitchDelta = Math.abs(targetAngles.x - internalOrientation.angles.x);
+                    if (minYaw == maxYaw && minPitch == maxPitch) {
+                        if (yawDelta < 10 && pitchDelta < 10) {
+                            state = state.promote(GunState.FIRING_REQUESTED);
+                        } else {
+                            state = state.demote(GunState.CONTROLLED);
+                        }
+                    } else if (yawDelta < yawSpeed && pitchDelta < pitchSpeed) {
                         state = state.promote(GunState.FIRING_REQUESTED);
                     } else {
                         state = state.demote(GunState.CONTROLLED);

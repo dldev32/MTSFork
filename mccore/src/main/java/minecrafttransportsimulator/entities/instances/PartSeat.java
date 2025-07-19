@@ -15,6 +15,9 @@ import minecrafttransportsimulator.guis.instances.GUIPanel;
 import minecrafttransportsimulator.guis.instances.GUIRadio;
 import minecrafttransportsimulator.items.instances.ItemPartGun;
 import minecrafttransportsimulator.items.instances.ItemPartSeat;
+import minecrafttransportsimulator.baseclasses.BoundingBox;
+import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
+import minecrafttransportsimulator.entities.instances.PartEngine;
 import minecrafttransportsimulator.jsondefs.JSONCameraObject;
 import minecrafttransportsimulator.jsondefs.JSONPartDefinition;
 import minecrafttransportsimulator.jsondefs.JSONPotionEffect;
@@ -42,6 +45,12 @@ public final class PartSeat extends APart {
     public int gunGroupIndex;
     public int gunIndex;
     public final HashMap<ItemPartGun, List<PartGun>> gunGroups = new LinkedHashMap<>();
+
+    /**
+     * Timer to prevent AI riders from shifting every tick.
+     * Decrements each update cycle if greater than 0.
+     */
+    public int aiShiftCooldown;
 
     public PartSeat(AEntityF_Multipart<?> entityOn, IWrapperPlayer placingPlayer, JSONPartDefinition placementDefinition, ItemPartSeat item, IWrapperNBT data) {
         super(entityOn, placingPlayer, placementDefinition, item, data);
@@ -102,6 +111,116 @@ public final class PartSeat extends APart {
         super.update();
         if (!canControlGuns && (activeGunItem != null || placementDefinition.canDisableGun)) {
             canControlGuns = true;
+        }
+
+        if (rider != null && !(rider instanceof IWrapperPlayer)) {
+            //Non-player riders auto-cycle guns.
+            if (gunGroups.size() > 1) {
+                if (--gunSequenceCooldown <= 0) {
+                    setNextActiveGun();
+                    gunSequenceCooldown = 20;
+                }
+            }
+
+            //If this seat controls the vehicle, start engines and follow the closest player.
+            if (placementDefinition.isController && vehicleOn instanceof EntityVehicleF_Physics) {
+                EntityVehicleF_Physics vehicle = (EntityVehicleF_Physics) vehicleOn;
+
+                //Start engines and release brakes if required.
+                if (!vehicle.enginesOn) {
+                    for (PartEngine engine : vehicle.engines) {
+                        engine.autoStartEngine();
+                    }
+                    vehicle.parkingBrakeVar.setTo(0, false);
+                }
+
+                //Find closest player within 64 blocks.
+                List<IWrapperPlayer> players = world.getPlayersWithin(new BoundingBox(vehicle.position, 128, 128, 128));
+                IWrapperPlayer closest = null;
+                double closestDist = Double.MAX_VALUE;
+                for (IWrapperPlayer player : players) {
+                    double dist = player.getPosition().distanceTo(vehicle.position);
+                    if (dist < closestDist) {
+                        closest = player;
+                        closestDist = dist;
+                    }
+                }
+
+                if (closest != null) {
+                    Point3D targetPos = closest.getPosition();
+                    double desiredYaw = Math.toDegrees(Math.atan2(targetPos.x - vehicle.position.x, targetPos.z - vehicle.position.z));
+                    double yawDelta = desiredYaw - vehicle.orientation.angles.y;
+                    while (yawDelta < -180) yawDelta += 360;
+                    while (yawDelta > 180) yawDelta -= 360;
+                    vehicle.addToSteeringAngle(yawDelta * 0.05);
+
+                    if (vehicle.definition.motorized.isAircraft) {
+                        double altitudeDelta = targetPos.y - vehicle.position.y;
+                        if (Math.abs(altitudeDelta) > 2) {
+                            vehicle.elevatorInputVar.increment(Math.signum(altitudeDelta) * EntityVehicleF_Physics.ELEVATOR_DAMPEN_RATE,
+                                    -EntityVehicleF_Physics.MAX_ELEVATOR_ANGLE, EntityVehicleF_Physics.MAX_ELEVATOR_ANGLE, false);
+                        } else if (vehicle.elevatorInputVar.currentValue > EntityVehicleF_Physics.ELEVATOR_DAMPEN_RATE) {
+                            vehicle.elevatorInputVar.increment(-EntityVehicleF_Physics.ELEVATOR_DAMPEN_RATE,
+                                    0, EntityVehicleF_Physics.MAX_ELEVATOR_ANGLE, false);
+                        } else if (vehicle.elevatorInputVar.currentValue < -EntityVehicleF_Physics.ELEVATOR_DAMPEN_RATE) {
+                            vehicle.elevatorInputVar.increment(EntityVehicleF_Physics.ELEVATOR_DAMPEN_RATE,
+                                    -EntityVehicleF_Physics.MAX_ELEVATOR_ANGLE, 0, false);
+                        } else if (vehicle.elevatorInputVar.currentValue != 0) {
+                            vehicle.elevatorInputVar.setTo(0, false);
+                        }
+
+                        if (Math.abs(yawDelta) > 5) {
+                            vehicle.aileronInputVar.increment(Math.signum(yawDelta) * EntityVehicleF_Physics.AILERON_DAMPEN_RATE,
+                                    -EntityVehicleF_Physics.MAX_AILERON_ANGLE, EntityVehicleF_Physics.MAX_AILERON_ANGLE, false);
+                        } else if (vehicle.aileronInputVar.currentValue > EntityVehicleF_Physics.AILERON_DAMPEN_RATE) {
+                            vehicle.aileronInputVar.increment(-EntityVehicleF_Physics.AILERON_DAMPEN_RATE,
+                                    0, EntityVehicleF_Physics.MAX_AILERON_ANGLE, false);
+                        } else if (vehicle.aileronInputVar.currentValue < -EntityVehicleF_Physics.AILERON_DAMPEN_RATE) {
+                            vehicle.aileronInputVar.increment(EntityVehicleF_Physics.AILERON_DAMPEN_RATE,
+                                    -EntityVehicleF_Physics.MAX_AILERON_ANGLE, 0, false);
+                        } else if (vehicle.aileronInputVar.currentValue != 0) {
+                            vehicle.aileronInputVar.setTo(0, false);
+                        }
+                    }
+
+                    if (vehicle.brakeVar.currentValue > 0) {
+                        vehicle.brakeVar.setTo(0, false);
+                    }
+                    double distance = vehicle.position.distanceTo(targetPos);
+                    if (distance > 20) {
+                        if (vehicle.throttleVar.currentValue < EntityVehicleF_Physics.MAX_THROTTLE) {
+                            vehicle.throttleVar.adjustBy(EntityVehicleF_Physics.MAX_THROTTLE / 50D, false);
+                        }
+                    } else if (distance < 10) {
+                        if (vehicle.throttleVar.currentValue > EntityVehicleF_Physics.MAX_THROTTLE / 10D) {
+                            vehicle.throttleVar.adjustBy(-EntityVehicleF_Physics.MAX_THROTTLE / 50D, false);
+                        }
+                    } else if (vehicle.throttleVar.currentValue < EntityVehicleF_Physics.MAX_THROTTLE / 2) {
+                        vehicle.throttleVar.adjustBy(EntityVehicleF_Physics.MAX_THROTTLE / 100D, false);
+                    } else if (vehicle.throttleVar.currentValue > EntityVehicleF_Physics.MAX_THROTTLE / 2) {
+                        vehicle.throttleVar.adjustBy(-EntityVehicleF_Physics.MAX_THROTTLE / 100D, false);
+                    }
+
+                    if (aiShiftCooldown > 0) {
+                        --aiShiftCooldown;
+                    }
+                    for (PartEngine engine : vehicle.engines) {
+                        if (!engine.isAutomaticVar.isActive && aiShiftCooldown == 0) {
+                            if (engine.rpm > engine.definition.engine.maxSafeRPM * 0.75) {
+                                if (engine.shiftUp()) {
+                                    aiShiftCooldown = 20;
+                                }
+                            } else if (engine.rpm < engine.definition.engine.idleRPM * 1.25) {
+                                if (engine.shiftDown()) {
+                                    aiShiftCooldown = 20;
+                                }
+                            }
+                        }
+                    }
+                } else if (aiShiftCooldown > 0) {
+                    --aiShiftCooldown;
+                }
+            }
         }
     }
 
